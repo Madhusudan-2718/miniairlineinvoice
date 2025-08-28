@@ -10,9 +10,28 @@ const InvoiceImporter = ({ onUpdate }) => {
   const [autoDownload, setAutoDownload] = useState(true);
   const [autoParse, setAutoParse] = useState(true);
 
-  const extractPnrs = (arr) => {
-    return arr.map((inv, idx) => String(inv['Invoice Number'] ?? inv.invoice_number ?? inv.invoiceNumber ?? inv.number ?? `INV${idx+1}`));
+  const extractPnrs = (arr) => arr.map((inv) => String(inv['Invoice Number'] ?? inv.invoice_number ?? inv.invoiceNumber ?? inv.number));
+
+  const normalizeName = (raw, fallback) => {
+    const name = String(raw || '').trim();
+    if (!name) return fallback;
+    // Pattern like: LAST / FIRST TITLE or LAST / FIRST MID TITLE
+    if (name.includes('/')) {
+      const [lastPart, rest] = name.split('/').map(s => s.trim());
+      const parts = rest.split(/\s+/);
+      let title = '';
+      const titles = ['MR', 'MS', 'MRS', 'MSTR', 'MISS', 'DR'];
+      if (parts.length > 1 && titles.includes(parts[parts.length - 1].toUpperCase())) {
+        title = parts.pop().toUpperCase();
+      }
+      const first = parts.join(' ');
+      const full = `${title ? title + ' ' : ''}${first} ${lastPart}`.trim();
+      return full;
+    }
+    return name;
   };
+
+  const extractName = (inv, fallback) => normalizeName(inv['Name'] ?? inv.name, fallback);
 
   const handleImport = async (e) => {
     e.preventDefault();
@@ -22,29 +41,26 @@ const InvoiceImporter = ({ onUpdate }) => {
 
     try {
       const parsed = JSON.parse(jsonData);
-      if (!Array.isArray(parsed) || parsed.length === 0) {
-        throw new Error('Provide a non-empty array of invoice objects');
-      }
+      if (!Array.isArray(parsed) || parsed.length === 0) throw new Error('Provide a non-empty array of invoice objects');
+
+      // Seed backend invoice metadata exactly as provided
+      await invoiceAPI.seed(parsed);
 
       const pnrs = extractPnrs(parsed);
+      const passengers = pnrs.map((pnr, i) => ({ name: extractName(parsed[i], `INV ${pnr}`), pnr }));
 
-      // Create passengers (skip silently if they exist)
-      const passengers = pnrs.map((pnr) => ({ name: `INV ${pnr}`, pnr }));
       let createdCount = 0;
       try {
         const res = await passengerAPI.createBulk(passengers);
         createdCount = res?.data?.passengers?.length ?? 0;
       } catch (_) {}
 
-      // Process all PNRs regardless of created or existing
       let processed = 0;
       if (autoDownload) {
         for (const pnr of pnrs) {
           try {
             const d = await invoiceAPI.download(pnr);
-            if (autoParse && d?.data?.status === 'Success') {
-              await invoiceAPI.parse(pnr);
-            }
+            if (autoParse && d?.data?.status === 'Success') await invoiceAPI.parse(pnr);
             processed++;
           } catch (_) {}
         }
@@ -61,7 +77,7 @@ const InvoiceImporter = ({ onUpdate }) => {
   };
 
   const sampleInvoices = [
-    { 'Invoice Number': '3800001239', Date: '2023-06-02', Airline: 'Thai Airways', Amount: 34470, GSTIN: '29AAACT6209L1ZW' }
+    { 'Invoice Number': '07P2407IV014983', Date: '2024-07-19', Airline: 'Thai Airways', Name: 'SAINI / VIKAS MR', Amount: 98535, GSTIN: '07AAAJT0025A1ZT' }
   ];
 
   return (
@@ -149,7 +165,7 @@ const InvoiceImporter = ({ onUpdate }) => {
 
       <div className="mt-4 p-3 bg-gray-50 border border-gray-200 rounded-md">
         <p className="text-xs text-gray-600">
-          Accepts invoice JSON like: [{'{'}"Invoice Number": "3800001239", "Date": "2023-06-02", "Airline": "Thai Airways", "Amount": 34470, "GSTIN": "29AAACT6209L1ZW"{'}'}], and creates passengers with name "INV &lt;Invoice Number&gt;" and pnr "&lt;Invoice Number&gt;".
+          Creates passengers with name from the invoice <strong>Name</strong> field (normalized to "TITLE FIRST LAST") and PNR from <strong>Invoice Number</strong>.
         </p>
       </div>
     </div>

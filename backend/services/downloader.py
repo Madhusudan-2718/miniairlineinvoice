@@ -16,38 +16,30 @@ class InvoiceDownloader:
         os.makedirs(self.invoices_dir, exist_ok=True)
         
         # Mock airline data for simulation
-        self.airlines = ["Air India", "IndiGo", "SpiceJet", "Vistara", "AirAsia"]
-        self.airline_codes = ["AI", "6E", "SG", "UK", "I5"]
+        self.airlines = ["Air India", "IndiGo", "SpiceJet", "Vistara", "AirAsia", "Thai Airways"]
+        self.airline_codes = {"Air India": "AI", "IndiGo": "6E", "SpiceJet": "SG", "Vistara": "UK", "AirAsia": "I5", "Thai Airways": "TG"}
+        # metadata_store: optional map pnr -> dict with fields
+        self.metadata_store = {}
         
     async def download_invoice(self, pnr: str, passenger_name: str):
-        """Simulate downloading invoice PDF from airline portal (deterministic success for demo)"""
+        """Generate a mock PDF using seeded metadata when available."""
         try:
-            # Simulate network delay
-            await asyncio.sleep(0.5)
-            
-            # Always success for demo stability
+            await asyncio.sleep(0.2)
             pdf_path = await self._generate_mock_pdf(pnr, passenger_name)
-            
-            return {
-                "status": "Success",
-                "message": f"Invoice downloaded successfully for PNR: {pnr}",
-                "pdf_path": pdf_path
-            }
-            
+            return {"status": "Success", "message": f"Invoice downloaded successfully for PNR: {pnr}", "pdf_path": pdf_path}
         except Exception as e:
-            return {
-                "status": "Error",
-                "message": f"Error downloading invoice: {str(e)}",
-                "pdf_path": None
-            }
+            return {"status": "Error", "message": f"Error downloading invoice: {str(e)}", "pdf_path": None}
     
     async def _generate_mock_pdf(self, pnr: str, passenger_name: str):
         """Generate a mock PDF invoice"""
-        airline = random.choice(self.airlines)
-        airline_code = random.choice(self.airline_codes)
-        invoice_number = f"INV-{airline_code}-{random.randint(10000, 99999)}"
-        amount = round(random.uniform(5000, 50000), 2)
-        gstin = f"{random.randint(10, 99)}AAAAA{random.randint(1000, 9999)}Z{random.randint(1, 9)}Z" if random.random() > 0.3 else None
+        meta = self.metadata_store.get(pnr, {})
+        airline = meta.get('Airline') or random.choice(self.airlines)
+        airline_code = self.airline_codes.get(airline, 'TG')
+        invoice_number = meta.get('Invoice Number') or f"INV-{airline_code}-{random.randint(10000, 99999)}"
+        amount = meta.get('Amount') if meta.get('Amount') is not None else round(random.uniform(5000, 50000), 2)
+        gstin = meta.get('GSTIN')
+        invoice_date = meta.get('Date') or datetime.now().strftime('%Y-%m-%d')
+        passenger_display = meta.get('Name') or passenger_name
         
         # Create PDF filename
         filename = f"invoice_{pnr}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
@@ -66,17 +58,17 @@ class InvoiceDownloader:
         # Invoice details
         data = [
             ['Invoice Number:', invoice_number],
-            ['Date:', datetime.now().strftime('%Y-%m-%d')],
-            ['Passenger Name:', passenger_name],
+            ['Date:', invoice_date],
+            ['Passenger Name:', passenger_display],
             ['PNR:', pnr],
             ['Airline:', airline],
-            ['Amount:', f"₹{amount:,.2f}"],
+            ['Amount:', f"₹{float(amount):,.2f}"],
         ]
         
         if gstin:
             data.append(['GSTIN:', gstin])
         
-        table = Table(data, colWidths=[120, 300])
+        table = Table(data, colWidths=[140, 320])
         table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (0, -1), colors.grey),
             ('TEXTCOLOR', (0, 0), (0, -1), colors.whitesmoke),

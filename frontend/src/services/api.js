@@ -20,6 +20,17 @@ export const invoiceAPI = {
   parse: (pnr) => api.post(`/parse/${pnr}`),
   getHighValue: (amount = 10000) => api.get(`/invoices/high-value?amount=${amount}`),
   flagForReview: (invoiceId, flag) => api.put(`/invoices/${invoiceId}/flag?flag=${flag}`),
+  seed: async (items) => {
+    try {
+      return await api.post('/invoices/seed', items);
+    } catch (err) {
+      const status = err?.response?.status;
+      if (status === 404 || status === 405) {
+        return await api.post('/seed', items);
+      }
+      throw err;
+    }
+  },
 };
 
 export const summaryAPI = {
